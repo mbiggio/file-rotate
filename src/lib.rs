@@ -292,6 +292,9 @@ use std::{
 };
 use suffix::*;
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 pub mod compression;
 pub mod suffix;
 #[cfg(test)]
@@ -358,6 +361,8 @@ pub struct FileRotate<S: SuffixScheme> {
     suffix_scheme: S,
     /// The bool is whether or not there's a .gz suffix to the filename
     suffixes: BTreeSet<SuffixInfo<S::Repr>>,
+    #[cfg(unix)]
+    mode: Option<u32>,
 }
 
 impl<S: SuffixScheme> FileRotate<S> {
@@ -376,6 +381,7 @@ impl<S: SuffixScheme> FileRotate<S> {
         suffix_scheme: S,
         content_limit: ContentLimit,
         compression: Compression,
+        #[cfg(unix)] mode: Option<u32>,
     ) -> Self {
         match content_limit {
             ContentLimit::Bytes(bytes) => {
@@ -400,6 +406,8 @@ impl<S: SuffixScheme> FileRotate<S> {
             compression,
             suffixes: BTreeSet::new(),
             suffix_scheme,
+            #[cfg(unix)]
+            mode,
         };
         s.ensure_log_directory_exists();
         s.scan_suffixes();
@@ -413,12 +421,16 @@ impl<S: SuffixScheme> FileRotate<S> {
         }
         if !self.basepath.exists() || self.file.is_none() {
             // Open or create the file
-            self.file = OpenOptions::new()
-                .read(true)
-                .create(true)
-                .append(true)
-                .open(&self.basepath)
-                .ok();
+            let mut open_options = OpenOptions::new();
+
+            open_options.read(true).create(true).append(true);
+
+            #[cfg(unix)]
+            if let Some(mode) = self.mode {
+                open_options.mode(mode);
+            }
+
+            self.file = open_options.open(&self.basepath).ok();
             match self.file {
                 None => self.count = 0,
                 Some(ref mut file) => {
