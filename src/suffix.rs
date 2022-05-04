@@ -5,7 +5,10 @@
 //!
 use crate::SuffixInfo;
 #[cfg(feature = "chrono04")]
-use chrono::{offset::Local, Duration, NaiveDateTime};
+use chrono::{
+    offset::{Local, Utc},
+    Duration, NaiveDateTime,
+};
 use std::{
     cmp::Ordering,
     collections::BTreeSet,
@@ -152,6 +155,8 @@ pub struct AppendTimestamp {
     pub format: &'static str,
     /// The file limit, e.g. when to delete an old file - by age (given by suffix) or by number of files
     pub file_limit: FileLimit,
+    /// whether to use UTC or LocalTime to get the timestamp
+    pub use_utc: bool,
 }
 
 #[cfg(feature = "chrono04")]
@@ -161,11 +166,16 @@ impl AppendTimestamp {
         Self {
             format: "%Y%m%dT%H%M%S",
             file_limit,
+            use_utc: false,
         }
     }
     /// Create new AppendTimestamp suffix scheme
-    pub fn with_format(format: &'static str, file_limit: FileLimit) -> Self {
-        Self { format, file_limit }
+    pub fn with_format(format: &'static str, use_utc: bool, file_limit: FileLimit) -> Self {
+        Self {
+            format,
+            file_limit,
+            use_utc,
+        }
     }
 }
 
@@ -214,7 +224,11 @@ impl SuffixScheme for AppendTimestamp {
     ) -> io::Result<TimestampSuffix> {
         assert!(suffix.is_none());
         if suffix.is_none() {
-            let now = Local::now().format(self.format).to_string();
+            let now = if self.use_utc {
+                Utc::now().format(self.format).to_string()
+            } else {
+                Local::now().format(self.format).to_string()
+            };
 
             let number = if let Some(newest_suffix) = newest_suffix {
                 if newest_suffix.timestamp == now {
@@ -259,7 +273,11 @@ impl SuffixScheme for AppendTimestamp {
         match self.file_limit {
             FileLimit::MaxFiles(max_files) => file_number >= max_files,
             FileLimit::Age(age) => {
-                let old_timestamp = (Local::now() - age).format(self.format).to_string();
+                let old_timestamp = if self.use_utc {
+                    (Utc::now() - age).format(self.format).to_string()
+                } else {
+                    (Local::now() - age).format(self.format).to_string()
+                };
                 suffix.timestamp < old_timestamp
             }
         }
